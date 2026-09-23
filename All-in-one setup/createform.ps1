@@ -7,7 +7,7 @@ $portalUrl = "https://CUSTOMER.helloid.com"
 $apiKey = "API_KEY"
 $apiSecret = "API_SECRET"
 $delegatedFormAccessGroupNames = @("") #Only unique names are supported. Groups must exist!
-$delegatedFormCategories = @("Exchange On-Premise") #Only unique names are supported. Categories will be created if not exists
+$delegatedFormCategories = @("Exchange On-Premises") #Only unique names are supported. Categories will be created if not exists
 $script:debugLogging = $false #Default value: $false. If $true, the HelloID resource GUIDs will be shown in the logging
 $script:duplicateForm = $false #Default value: $false. If $true, the HelloID resource names will be changed to import a duplicate Form
 $script:duplicateFormSuffix = "_tmp" #the suffix will be added to all HelloID resource names to generate a duplicate form with different resource names
@@ -20,22 +20,32 @@ $globalHelloIDVariables = [System.Collections.Generic.List[object]]@();
 $tmpName = @'
 ExchangeConnectionUri
 '@ 
-$tmpValue = ""
-$globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "False" });
-
-#Global variable #2 >> ExchangeAdminUsername
-$tmpName = @'
-ExchangeAdminUsername
+$tmpValue = @'
 '@ 
-$tmpValue = ""
 $globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "False" });
 
-#Global variable #3 >> ExchangeAdminPassword
+#Global variable #2 >> ExchangeAdminPassword
 $tmpName = @'
 ExchangeAdminPassword
 '@ 
 $tmpValue = "" 
 $globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "True" });
+
+#Global variable #3 >> ExchangeAdminUsername
+$tmpName = @'
+ExchangeAdminUsername
+'@ 
+$tmpValue = @'
+'@ 
+$globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "False" });
+
+#Global variable #4 >> ADusersSearchOU
+$tmpName = @'
+ADusersSearchOU
+'@ 
+$tmpValue = @'
+'@ 
+$globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "False" });
 
 
 #make sure write-information logging is visual
@@ -94,7 +104,7 @@ function Invoke-HelloIDGlobalVariable {
     try {
         $uri = ($script:PortalBaseUrl + "api/v1/automation/variables/named/$Name")
         $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false
-    
+
         if ([string]::IsNullOrEmpty($response.automationVariableGuid)) {
             #Create Variable
             $body = @{
@@ -104,7 +114,7 @@ function Invoke-HelloIDGlobalVariable {
                 ItemType = 0;
             }    
             $body = ConvertTo-Json -InputObject $body -Depth 100
-    
+
             $uri = ($script:PortalBaseUrl + "api/v1/automation/variable")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
             $variableGuid = $response.automationVariableGuid
@@ -132,14 +142,14 @@ function Invoke-HelloIDAutomationTask {
         [parameter()][String][AllowEmptyString()]$ForceCreateTask,
         [parameter(Mandatory)][Ref]$returnObject
     )
-    
+
     $TaskName = $TaskName + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
 
     try {
         $uri = ($script:PortalBaseUrl + "api/v1/automationtasks?search=$TaskName&container=$AutomationContainer")
         $responseRaw = (Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false) 
         $response = $responseRaw | Where-Object -filter { $_.name -eq $TaskName }
-    
+
         if ([string]::IsNullOrEmpty($response.automationTaskGuid) -or $ForceCreateTask -eq $true) {
             #Create Task
 
@@ -152,7 +162,7 @@ function Invoke-HelloIDAutomationTask {
                 variables           = (ConvertFrom-Json-WithEmptyArray($Variables));
             }
             $body = ConvertTo-Json -InputObject $body -Depth 100
-    
+
             $uri = ($script:PortalBaseUrl + "api/v1/automationtasks/powershell")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
             $taskGuid = $response.automationTaskGuid
@@ -181,6 +191,7 @@ function Invoke-HelloIDDatasource {
         [parameter()][String][AllowEmptyString()]$DatasourcePsScript,        
         [parameter()][String][AllowEmptyString()]$DatasourceInput,
         [parameter()][String][AllowEmptyString()]$AutomationTaskGuid,
+        [parameter()][String][AllowEmptyString()]$DatasourceRunInCloud,
         [parameter(Mandatory)][Ref]$returnObject
     )
 
@@ -192,11 +203,11 @@ function Invoke-HelloIDDatasource {
         "3" { "Task data source"; break } 
         "4" { "Powershell data source"; break }
     }
-    
+
     try {
         $uri = ($script:PortalBaseUrl + "api/v1/datasource/named/$DatasourceName")
         $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false
-      
+    
         if ([string]::IsNullOrEmpty($response.dataSourceGUID)) {
             #Create DataSource
             $body = @{
@@ -207,12 +218,13 @@ function Invoke-HelloIDDatasource {
                 value              = (ConvertFrom-Json-WithEmptyArray($DatasourceStaticValue));
                 script             = $DatasourcePsScript;
                 input              = (ConvertFrom-Json-WithEmptyArray($DatasourceInput));
+                runInCloud         = $DatasourceRunInCloud;
             }
             $body = ConvertTo-Json -InputObject $body -Depth 100
-      
+    
             $uri = ($script:PortalBaseUrl + "api/v1/datasource")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
-              
+            
             $datasourceGuid = $response.dataSourceGUID
             Write-Information "$datasourceTypeName '$DatasourceName' created$(if ($script:debugLogging -eq $true) { ": " + $datasourceGuid })"
         }
@@ -235,7 +247,7 @@ function Invoke-HelloIDDynamicForm {
         [parameter(Mandatory)][String]$FormSchema,
         [parameter(Mandatory)][Ref]$returnObject
     )
-    
+
     $FormName = $FormName + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
 
     try {
@@ -246,7 +258,7 @@ function Invoke-HelloIDDynamicForm {
         catch {
             $response = $null
         }
-    
+
         if (([string]::IsNullOrEmpty($response.dynamicFormGUID)) -or ($response.isUpdated -eq $true)) {
             #Create Dynamic form
             $body = @{
@@ -254,10 +266,10 @@ function Invoke-HelloIDDynamicForm {
                 FormSchema = (ConvertFrom-Json-WithEmptyArray($FormSchema));
             }
             $body = ConvertTo-Json -InputObject $body -Depth 100
-    
+
             $uri = ($script:PortalBaseUrl + "api/v1/forms")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
-    
+
             $formGuid = $response.dynamicFormGUID
             Write-Information "Dynamic form '$formName' created$(if ($script:debugLogging -eq $true) { ": " + $formGuid })"
         }
@@ -296,7 +308,7 @@ function Invoke-HelloIDDelegatedForm {
         catch {
             $response = $null
         }
-    
+
         if ([string]::IsNullOrEmpty($response.delegatedFormGUID)) {
             #Create DelegatedForm
             $body = @{
@@ -313,10 +325,10 @@ function Invoke-HelloIDDelegatedForm {
                 }
             }
             $body = ConvertTo-Json -InputObject $body -Depth 100
-    
+
             $uri = ($script:PortalBaseUrl + "api/v1/delegatedforms")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
-    
+
             $delegatedFormGuid = $response.delegatedFormGUID
             Write-Information "Delegated form '$DelegatedFormName' created$(if ($script:debugLogging -eq $true) { ": " + $delegatedFormGuid })"
             $delegatedFormCreated = $true
@@ -340,7 +352,6 @@ function Invoke-HelloIDDelegatedForm {
     $returnObject.value.created = $delegatedFormCreated
 }
 
-
 <# Begin: HelloID Global Variables #>
 foreach ($item in $globalHelloIDVariables) {
     Invoke-HelloIDGlobalVariable -Name $item.name -Value $item.value -Secret $item.secret 
@@ -349,241 +360,397 @@ foreach ($item in $globalHelloIDVariables) {
 
 
 <# Begin: HelloID Data sources #>
-<# Begin: DataSource "Exchange-mailuser-get-activesync-devices-blocked" #>
+<# Begin: DataSource "exchange-on-premises-usermailbox-activesync-devices-manage | Exchange-On-Premises-Get-Activesync-Devices" #>
 $tmpPsScript = @'
-<#----- Exchange On-Premises: [powershell-datasource]_Exchange-mailbox-add-email-address-get-mailbox -----#>
-# Connect to Exchange
-try {
-    $adminSecurePassword = ConvertTo-SecureString -String "$ExchangeAdminPassword" -AsPlainText -Force
-    $adminCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $ExchangeAdminUsername, $adminSecurePassword
-    $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck #-SkipRevocationCheck
-    $exchangeSession = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri $exchangeConnectionUri -Credential $adminCredential -SessionOption $sessionOption -Authentication $ExchangeAuthentication -ErrorAction Stop
-    #-AllowRedirection
-    # $null = Import-PSSession $exchangeSession -DisableNameChecking -AllowClobber
-    Write-Information "Successfully connected to Exchange using the URI [$exchangeConnectionUri]"
-} catch {
-    Write-Information "Error connecting to Exchange using the URI [$exchangeConnectionUri]"
-    Write-Information "Failed to connect to Exchange using the URI [$exchangeConnectionUri]"
-    Write-Error "$($_.Exception.Message)"
-    throw $_
-}
+# variables configured in form
+$mailbox = $datasource.selectedmailbox
+
+# Global variables
+# Outcommented as these are set from Global Variables
+# $ExchangeConnectionUri = ""
+# $ExchangeAdminUsername = ""
+# $ExchangeAdminPassword = ""
+
+$commands = @(
+    "Get-MobileDevice"
+)
+
+# Enable TLS1.2
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+
+# Set debug logging
+$VerbosePreference = "SilentlyContinue"
+$InformationPreference = "Continue"
+$WarningPreference = "Continue"
+
+#region functions
+#endregion functions
 
 try {
-    $ParamsGetMailbxox = @{
-       Mailbox = $dataSource.selecteduser.UserPrincipalName
+    # Create credentials
+    $actionMessage = "creating credentials object"
+    
+    $securePassword = ConvertTo-SecureString -String $ExchangeAdminPassword -AsPlainText -Force
+    $credential = [System.Management.Automation.PSCredential]::new($ExchangeAdminUsername, $securePassword)
+
+    # Connect to Exchange On-Premises
+    # Docs: https://learn.microsoft.com/en-us/powershell/exchange/connect-to-exchange-servers-using-remote-powershell
+    $actionMessage = "connecting to Exchange On-Premises using URI [$ExchangeConnectionUri]"
+
+    $sessionOptionParams = @{
+        SkipCACheck         = $false
+        SkipCNCheck         = $false
+        SkipRevocationCheck = $false
     }
-    
-    Write-Information "SearchQuery: $($ParamsGetMailbxox.Filter)"
-        $devices = Invoke-Command -Session $exchangeSession -ScriptBlock {
-            Param ($ParamsGetMailbxox)
-            Get-MobileDevice @ParamsGetMailbxox
-        } -ArgumentList $ParamsGetMailbxox
-    
-        $devices = $devices | Sort-Object -Property FriendlyName
-        $resultCount = @($devices).Count
-        Write-Information "Result count: $resultCount"
-        if ($resultCount -gt 0) {
-            foreach ($device in $devices) {
-                if($device.DeviceAccessState -eq 'Blocked'){
-                    $returnObject = @{DeviceId = $device.DeviceId; FriendlyName = $device.FriendlyName; DeviceType = $device.DeviceType; DeviceAccessState = $device.DeviceAccessState }
-                    Write-Output $returnObject
-                }
-            }
-        }
-    
-} catch {
-    Write-Error "Error searching AD user [$searchValue]. Error: $($_.Exception.Message)"
-}
 
-# Disconnect from Exchange
-try {
-    Remove-PSSession -Session $exchangeSession -Confirm:$false -ErrorAction Stop
-    Write-Information "Successfully disconnected from Exchange"
+    $sessionOption = New-PSSessionOption @sessionOptionParams
+
+    $sessionParams = @{
+        Authentication    = 'Default'
+        ConfigurationName = 'Microsoft.Exchange'
+        ConnectionUri     = $ExchangeConnectionUri
+        Credential        = $credential
+        SessionOption     = $sessionOption
+        ErrorAction       = "Stop"
+    }
+
+    $exchangeSession = New-PSSession @sessionParams
+    $null = Import-PSSession -Session $exchangeSession -DisableNameChecking -AllowClobber -CommandName $commands -ErrorAction Stop
+
+    # Get Mailboxes
+    # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/get-mobiledevice
+    $actionMessage = "querying active sync devices of user [$($mailbox.DisplayName)]"
+
+    $getActiveSyncDevicesParams = @{
+        Mailbox      = $mailbox.UserPrincipalName
+        ResultSize  = "Unlimited"
+        ErrorAction = 'Stop'
+    }
+    $devices = Get-MobileDevice @getActiveSyncDevicesParams | Sort-Object -Property FriendlyName
+    
+    $resultCount = @($devices).Count
+    Write-Information "Result count: $resultCount"
+    if ($resultCount -gt 0) {
+        foreach ($device in $devices) {
+            $returnObject = @{DeviceId = $device.DeviceId; FriendlyName = $device.FriendlyName; DeviceType = $device.DeviceType; DeviceAccessState = $device.DeviceAccessState }
+            Write-Output $returnObject
+        }
+    }    
 } catch {
-    Write-Error "Error disconnecting from Exchange"
-    Write-Error "$($_.Exception.Message)"
-    throw $_
+    $ex = $PSItem
+    if (-not [string]::IsNullOrEmpty($ex.Exception.Message)) {
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)"
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception.Message)"
+    }
+    else {
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception)"
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception)"
+    }
+    Write-Warning $warningMessage
+    Write-Error $auditMessage
+    # exit # use when using multiple try/catch and the script must stop
 }
-<#----- Exchange On-Premises: End -----#>
+finally {
+    # Disconnect from Exchange
+    # Docs: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/remove-pssession
+    if ($null -ne $exchangeSession) {
+        try {
+            $deleteExchangeSessionSplatParams = @{
+                Session     = $exchangeSession
+                Confirm     = $false
+                ErrorAction = "Stop"
+            }
+            $null = Remove-PSSession @deleteExchangeSessionSplatParams
+        }
+        catch {
+            Write-Warning "Failed to disconnect from Exchange using URI [$ExchangeConnectionUri]. Error: $($_.Exception.Message)"
+        }
+    }
+}
 '@ 
 $tmpModel = @'
-[{"key":"DeviceAccessState","type":0},{"key":"DeviceType","type":0},{"key":"FriendlyName","type":0},{"key":"DeviceId","type":0}]
+[{"key":"DeviceId","type":0},{"key":"FriendlyName","type":0},{"key":"DeviceType","type":0},{"key":"DeviceAccessState","type":0}]
 '@ 
 $tmpInput = @'
-[{"description":null,"translateDescription":false,"inputFieldType":1,"key":"selecteduser","type":0,"options":1}]
-'@ 
-$dataSourceGuid_1 = [PSCustomObject]@{} 
-$dataSourceGuid_1_Name = @'
-Exchange-mailuser-get-activesync-devices-blocked
-'@ 
-Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_1_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_1) 
-<# End: DataSource "Exchange-mailuser-get-activesync-devices-blocked" #>
-
-<# Begin: DataSource "Exchange-mailuser-get-activesync-devices-active" #>
-$tmpPsScript = @'
-<#----- Exchange On-Premises: [powershell-datasource]_Exchange-mailbox-add-email-address-get-mailbox -----#>
-# Connect to Exchange
-try {
-    $adminSecurePassword = ConvertTo-SecureString -String "$ExchangeAdminPassword" -AsPlainText -Force
-    $adminCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $ExchangeAdminUsername, $adminSecurePassword
-    $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck #-SkipRevocationCheck
-    $exchangeSession = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri $exchangeConnectionUri -Credential $adminCredential -SessionOption $sessionOption -Authentication $ExchangeAuthentication -ErrorAction Stop
-    #-AllowRedirection
-    # $null = Import-PSSession $exchangeSession -DisableNameChecking -AllowClobber
-    Write-Information "Successfully connected to Exchange using the URI [$exchangeConnectionUri]"
-} catch {
-    Write-Information "Error connecting to Exchange using the URI [$exchangeConnectionUri]"
-    Write-Information "Failed to connect to Exchange using the URI [$exchangeConnectionUri]"
-    Write-Error "$($_.Exception.Message)"
-    throw $_
-}
-
-try {
-    $ParamsGetMailbxox = @{
-       Mailbox = $dataSource.selecteduser.UserPrincipalName
-    }
-    
-    Write-Information "SearchQuery: $($ParamsGetMailbxox.Filter)"
-        $devices = Invoke-Command -Session $exchangeSession -ScriptBlock {
-            Param ($ParamsGetMailbxox)
-            Get-MobileDevice @ParamsGetMailbxox
-        } -ArgumentList $ParamsGetMailbxox
-    
-        $devices = $devices | Sort-Object -Property FriendlyName
-        $resultCount = @($devices).Count
-        Write-Information "Result count: $resultCount"
-        if ($resultCount -gt 0) {
-            foreach ($device in $devices) {
-                #if($device.DeviceAccessState -ne 'Blocked'){
-                    $returnObject = @{DeviceId = $device.DeviceId; FriendlyName = $device.FriendlyName; DeviceType = $device.DeviceType; DeviceAccessState = $device.DeviceAccessState }
-                    Write-Output $returnObject
-                #}
-            }
-        }
-    
-} catch {
-    Write-Error "Error searching AD user [$searchValue]. Error: $($_.Exception.Message)"
-}
-
-# Disconnect from Exchange
-try {
-    Remove-PSSession -Session $exchangeSession -Confirm:$false -ErrorAction Stop
-    Write-Information "Successfully disconnected from Exchange"
-} catch {
-    Write-Error "Error disconnecting from Exchange"
-    Write-Error "$($_.Exception.Message)"
-    throw $_
-}
-<#----- Exchange On-Premises: End -----#>
-
-'@ 
-$tmpModel = @'
-[{"key":"DeviceType","type":0},{"key":"FriendlyName","type":0},{"key":"DeviceId","type":0},{"key":"DeviceAccessState","type":0}]
-'@ 
-$tmpInput = @'
-[{"description":null,"translateDescription":false,"inputFieldType":1,"key":"selecteduser","type":0,"options":1}]
+[{"description":null,"translateDescription":false,"inputFieldType":1,"key":"selectedmailbox","type":0,"options":1}]
 '@ 
 $dataSourceGuid_2 = [PSCustomObject]@{} 
 $dataSourceGuid_2_Name = @'
-Exchange-mailuser-get-activesync-devices-active
+exchange-on-premises-usermailbox-activesync-devices-manage | Exchange-On-Premises-Get-Activesync-Devices
 '@ 
-Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_2_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_2) 
-<# End: DataSource "Exchange-mailuser-get-activesync-devices-active" #>
+Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_2_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -DataSourceRunInCloud "False" -returnObject ([Ref]$dataSourceGuid_2) 
+<# End: DataSource "exchange-on-premises-usermailbox-activesync-devices-manage | Exchange-On-Premises-Get-Activesync-Devices" #>
 
-<# Begin: DataSource "Exchange-mailuser-generate-table-wildcard" #>
+<# Begin: DataSource "exchange-on-premises-usermailbox-activesync-devices-manage | Exchange-On-Premises-Get-Blocked-Activesync-Devices" #>
 $tmpPsScript = @'
-# used global defined variables in helloid
-# $ExchangeConnectionUri
-# $ExchangeAdminUsername
-# $ExchangeAdminPassword
+# variables configured in form
+$mailbox = $datasource.selectedmailbox
 
-## connect to exchange and get list of mailboxes
+# Global variables
+# Outcommented as these are set from Global Variables
+# $ExchangeConnectionUri = ""
+# $ExchangeAdminUsername = ""
+# $ExchangeAdminPassword = ""
 
-try{
-    $adminSecurePassword = ConvertTo-SecureString -String $ExchangeAdminPassword -AsPlainText -Force
-    $adminCredential = [System.Management.Automation.PSCredential]::new($ExchangeAdminUsername,$adminSecurePassword)
-    $searchValue = ($dataSource.searchmailuser).trim()
-    $searchQuery = "*$searchValue*"  
+$commands = @(
+    "Get-MobileDevice"
+)
+
+# Enable TLS1.2
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+
+# Set debug logging
+$VerbosePreference = "SilentlyContinue"
+$InformationPreference = "Continue"
+$WarningPreference = "Continue"
+
+#region functions
+#endregion functions
+
+try {
+    # Create credentials
+    $actionMessage = "creating credentials object"
+    
+    $securePassword = ConvertTo-SecureString -String $ExchangeAdminPassword -AsPlainText -Force
+    $credential = [System.Management.Automation.PSCredential]::new($ExchangeAdminUsername, $securePassword)
+
+    # Connect to Exchange On-Premises
+    # Docs: https://learn.microsoft.com/en-us/powershell/exchange/connect-to-exchange-servers-using-remote-powershell
+    $actionMessage = "connecting to Exchange On-Premises using URI [$ExchangeConnectionUri]"
 
     $sessionOptionParams = @{
-        SkipCACheck = $true
-        SkipCNCheck = $true
-        SkipRevocationCheck = $true
+        SkipCACheck         = $false
+        SkipCNCheck         = $false
+        SkipRevocationCheck = $false
     }
 
-    $sessionOption = New-PSSessionOption  @SessionOptionParams 
+    $sessionOption = New-PSSessionOption @sessionOptionParams
 
-    $sessionParams = @{        
-        Authentication = $ExchangeAuthentication 
-        ConfigurationName = 'Microsoft.Exchange' 
-        ConnectionUri = $ExchangeConnectionUri 
-        Credential = $adminCredential        
-        SessionOption = $sessionOption       
+    $sessionParams = @{
+        Authentication    = 'Default'
+        ConfigurationName = 'Microsoft.Exchange'
+        ConnectionUri     = $ExchangeConnectionUri
+        Credential        = $credential
+        SessionOption     = $sessionOption
+        ErrorAction       = "Stop"
     }
 
-    $exchangeSession = New-PSSession @SessionParams
+    $exchangeSession = New-PSSession @sessionParams
+    $null = Import-PSSession -Session $exchangeSession -DisableNameChecking -AllowClobber -CommandName $commands -ErrorAction Stop
 
-    Write-Information "Search query is '$searchQuery'" 
+    # Get Mailboxes
+    # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/get-mobiledevice
+    $actionMessage = "querying active sync devices of user [$($mailbox.DisplayName)]"
+
+    $getActiveSyncDevicesParams = @{
+        Mailbox      = $mailbox.UserPrincipalName
+        ResultSize  = "Unlimited"
+        ErrorAction = 'Stop'
+    }
+    $devices = Get-MobileDevice @getActiveSyncDevicesParams | Sort-Object -Property FriendlyName
     
-    $getMailboxParams = @{
-        Filter = "Alias -like '$searchQuery' -or Name -like '$searchQuery'"   
-    }
-   
-    
-     $invokecommandParams = @{
-        Session = $exchangeSession
-        Scriptblock = [scriptblock] { Param ($Params)Get-Mailbox @Params}
-        ArgumentList = $getMailboxParams
-    }
-
-    Write-Information "Successfully connected to Exchange '$ExchangeConnectionUri'"  
-    
-    $mailBoxes =  Invoke-Command @invokeCommandParams   
-
-    $resultMailboxList = [System.Collections.Generic.List[PSCustomObject]]::New()
-    foreach ($box in $mailBoxes)
-    {        
-       $resultMailbox = @{
-        DisplayName = $box.DisplayName        
-        UserPrincipalName = $box.UserPrincipalName
-        Alias = $box.Alias
-        DistinguishedName = $box.DistinguishedName        
-
-       }
-       $resultMailboxList.add($resultMailbox)
-
-    }
-    $resultMailboxList
-    
-    Remove-PSSession($exchangeSession)
-  
+    $resultCount = @($devices).Count
+    Write-Information "Result count: $resultCount"
+    if ($resultCount -gt 0) {
+        foreach ($device in $devices) {
+            if($device.DeviceAccessState -eq 'Blocked'){
+                $returnObject = @{DeviceId = $device.DeviceId; FriendlyName = $device.FriendlyName; DeviceType = $device.DeviceType; DeviceAccessState = $device.DeviceAccessState }
+                Write-Output $returnObject
+            }
+        }
+    }    
 } catch {
-    Write-Error "Error connecting to Exchange using the URI '$exchangeConnectionUri', Message '$($_.Exception.Message)'"
+    $ex = $PSItem
+    if (-not [string]::IsNullOrEmpty($ex.Exception.Message)) {
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)"
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception.Message)"
+    }
+    else {
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception)"
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception)"
+    }
+    Write-Warning $warningMessage
+    Write-Error $auditMessage
+    # exit # use when using multiple try/catch and the script must stop
 }
-
+finally {
+    # Disconnect from Exchange
+    # Docs: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/remove-pssession
+    if ($null -ne $exchangeSession) {
+        try {
+            $deleteExchangeSessionSplatParams = @{
+                Session     = $exchangeSession
+                Confirm     = $false
+                ErrorAction = "Stop"
+            }
+            $null = Remove-PSSession @deleteExchangeSessionSplatParams
+        }
+        catch {
+            Write-Warning "Failed to disconnect from Exchange using URI [$ExchangeConnectionUri]. Error: $($_.Exception.Message)"
+        }
+    }
+}
 '@ 
 $tmpModel = @'
-[{"key":"DisplayName","type":0},{"key":"UserPrincipalName","type":0},{"key":"Alias","type":0},{"key":"DistinguishedName","type":0}]
+[{"key":"DeviceId","type":0},{"key":"FriendlyName","type":0},{"key":"DeviceType","type":0},{"key":"DeviceAccessState","type":0}]
 '@ 
 $tmpInput = @'
-[{"description":null,"translateDescription":false,"inputFieldType":1,"key":"searchMailuser","type":0,"options":1}]
+[{"description":null,"translateDescription":false,"inputFieldType":1,"key":"selectedmailbox","type":0,"options":1}]
+'@ 
+$dataSourceGuid_1 = [PSCustomObject]@{} 
+$dataSourceGuid_1_Name = @'
+exchange-on-premises-usermailbox-activesync-devices-manage | Exchange-On-Premises-Get-Blocked-Activesync-Devices
+'@ 
+Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_1_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -DataSourceRunInCloud "False" -returnObject ([Ref]$dataSourceGuid_1) 
+<# End: DataSource "exchange-on-premises-usermailbox-activesync-devices-manage | Exchange-On-Premises-Get-Blocked-Activesync-Devices" #>
+
+<# Begin: DataSource "exchange-on-premises-usermailbox-activesync-devices-manage | Exchange-On-Premises-Get-Usermailbox-Wildcard-Name-Alias" #>
+$tmpPsScript = @'
+# Variables configured in form
+$searchValue = $datasource.searchValue
+if ($searchValue -eq "*") {
+    $filter = "RecipientTypeDetails -eq 'UserMailbox'"
+}
+else {
+    $filter = "RecipientTypeDetails -eq 'UserMailbox' -and (Name -like '*$searchValue*' -or SamAccountName -like '*$searchValue*' -or Alias -like '*$searchValue*' -or PrimarySmtpAddress -like '*$searchValue*')"
+}
+
+# Global variables
+# Outcommented as these are set from Global Variables
+# $ExchangeConnectionUri = ""
+# $ExchangeAdminUsername = ""
+# $ExchangeAdminPassword = ""
+# $ADusersSearchOU = ""
+
+# Fixed values
+# Properties to select - Select only needed properties to limit memory usage and speed up processing
+$propertiesToSelect = @(
+    "ExchangeGuid"
+    , "samAccountName"
+    , "UserPrincipalName"
+    , "DistinguishedName"
+    , "PrimarySmtpAddress"
+    , "DisplayName"
+    , "Identity"        
+)
+
+
+# Enable TLS1.2
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+
+# Set debug logging
+$VerbosePreference = "SilentlyContinue"
+$InformationPreference = "Continue"
+$WarningPreference = "Continue"
+
+#region functions
+#endregion functions
+
+try {
+    # Create credentials
+    $actionMessage = "creating credentials object"
+    
+    $securePassword = ConvertTo-SecureString -String $ExchangeAdminPassword -AsPlainText -Force
+    $credential = [System.Management.Automation.PSCredential]::new($ExchangeAdminUsername, $securePassword)
+
+    # Connect to Exchange On-Premises
+    # Docs: https://learn.microsoft.com/en-us/powershell/exchange/connect-to-exchange-servers-using-remote-powershell
+    $actionMessage = "connecting to Exchange On-Premises using URI [$ExchangeConnectionUri]"
+
+    $sessionOptionParams = @{
+        SkipCACheck         = $false
+        SkipCNCheck         = $false
+        SkipRevocationCheck = $false
+    }
+
+    $sessionOption = New-PSSessionOption @sessionOptionParams
+
+    $sessionParams = @{
+        Authentication    = 'Default'
+        ConfigurationName = 'Microsoft.Exchange'
+        ConnectionUri     = $ExchangeConnectionUri
+        Credential        = $credential
+        SessionOption     = $sessionOption
+        ErrorAction       = "Stop"
+    }
+
+    $exchangeSession = New-PSSession @sessionParams
+    $null = Import-PSSession -Session $exchangeSession -DisableNameChecking -AllowClobber -CommandName "Get-Mailbox" -ErrorAction Stop
+
+    # Get Mailboxes
+    # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/get-mailbox
+    $actionMessage = "querying user mailboxes that match filter [$($filter)]"
+
+    $getMailboxesSplatParams = @{
+        Filter      = $filter
+        ResultSize  = "Unlimited"
+        ErrorAction = 'Stop'
+    }
+
+    $mailboxes = Get-Mailbox @getMailboxesSplatParams | Select-Object -Property $propertiesToSelect
+    Write-Information "Queried user mailboxes that match filter [$($filter)]. Result count: $(($mailboxes | Measure-Object).Count)"
+
+    # Sort and send results to HelloID
+    $actionMessage = "sending results to HelloID"
+    $mailboxes | Sort-Object -Property DisplayName | ForEach-Object {
+        # Set mailDomain and mailPrefix properties
+        Write-Output $_
+    }       
+}
+catch {
+    $ex = $PSItem
+    if (-not [string]::IsNullOrEmpty($ex.Exception.Message)) {
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)"
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception.Message)"
+    }
+    else {
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception)"
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception)"
+    }
+    Write-Warning $warningMessage
+    Write-Error $auditMessage
+    # exit # use when using multiple try/catch and the script must stop
+}
+finally {
+    # Disconnect from Exchange
+    # Docs: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/remove-pssession
+    if ($null -ne $exchangeSession) {
+        try {
+            $deleteExchangeSessionSplatParams = @{
+                Session     = $exchangeSession
+                Confirm     = $false
+                ErrorAction = "Stop"
+            }
+            $null = Remove-PSSession @deleteExchangeSessionSplatParams
+        }
+        catch {
+            Write-Warning "Failed to disconnect from Exchange using URI [$ExchangeConnectionUri]. Error: $($_.Exception.Message)"
+        }
+    }
+}
+'@ 
+$tmpModel = @'
+[{"key":"ExchangeGuid","type":0},{"key":"SamAccountName","type":0},{"key":"UserPrincipalName","type":0},{"key":"DistinguishedName","type":0},{"key":"PrimarySmtpAddress","type":0},{"key":"DisplayName","type":0},{"key":"Identity","type":0}]
+'@ 
+$tmpInput = @'
+[{"description":null,"translateDescription":false,"inputFieldType":1,"key":"searchValue","type":0,"options":1}]
 '@ 
 $dataSourceGuid_0 = [PSCustomObject]@{} 
 $dataSourceGuid_0_Name = @'
-Exchange-mailuser-generate-table-wildcard
+exchange-on-premises-usermailbox-activesync-devices-manage | Exchange-On-Premises-Get-Usermailbox-Wildcard-Name-Alias
 '@ 
-Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_0_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_0) 
-<# End: DataSource "Exchange-mailuser-generate-table-wildcard" #>
+Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_0_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -DataSourceRunInCloud "False" -returnObject ([Ref]$dataSourceGuid_0) 
+<# End: DataSource "exchange-on-premises-usermailbox-activesync-devices-manage | Exchange-On-Premises-Get-Usermailbox-Wildcard-Name-Alias" #>
 <# End: HelloID Data sources #>
 
-<# Begin: Dynamic Form "Exchange on-premise - Manage ActiveSync Devices" #>
+<# Begin: Dynamic Form "Exchange On-Premises - Usermailbox - ActiveSync Devices - Manage" #>
 $tmpSchema = @"
-[{"label":"Search","fields":[{"key":"searchMailbox","templateOptions":{"label":"Search Mailuser","required":true},"type":"input","summaryVisibility":"Hide element","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"gridMailuser","templateOptions":{"label":"Mailuser","required":false,"grid":{"columns":[{"headerName":"Alias","field":"Alias"},{"headerName":"User Principal Name","field":"UserPrincipalName"},{"headerName":"Distinguished Name","field":"DistinguishedName"},{"headerName":"Display Name","field":"DisplayName"}],"height":300,"rowSelection":"single"},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_0","input":{"propertyInputs":[{"propertyName":"searchMailuser","otherFieldValue":{"otherFieldKey":"searchMailbox"}}]}},"useFilter":true,"useDefault":false},"type":"grid","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":true}]},{"label":"Devices","fields":[{"key":"devicelist","templateOptions":{"label":"ActiveSyncDevices","required":false,"filterable":false,"useDataSource":true,"dualList":{"options":[{"guid":"75ea2890-88f8-4851-b202-626123054e14","Name":"Apple"},{"guid":"0607270d-83e2-4574-9894-0b70011b663f","Name":"Pear"},{"guid":"1ef6fe01-3095-4614-a6db-7c8cd416ae3b","Name":"Orange"}],"optionKeyProperty":"DeviceId","optionDisplayProperty":"FriendlyName","labelLeft":"Allowed devices","labelRight":"Blocked devices"},"destinationDataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_1","input":{"propertyInputs":[{"propertyName":"selecteduser","otherFieldValue":{"otherFieldKey":"gridMailuser"}}]}},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_2","input":{"propertyInputs":[{"propertyName":"selecteduser","otherFieldValue":{"otherFieldKey":"gridMailuser"}}]}}},"type":"duallist","summaryVisibility":"Show","sourceDataSourceIdentifierSuffix":"source-datasource","destinationDataSourceIdentifierSuffix":"destination-datasource","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false}]}]
+[{"label":"Select mailbox","fields":[{"key":"searchMailbox","templateOptions":{"label":"Search mailbox","required":true},"type":"input","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"selectedmailbox","templateOptions":{"label":"Select mailbox","required":false,"grid":{"columns":[{"headerName":"Display Name","field":"DisplayName"},{"headerName":"Primary Smtp Address","field":"PrimarySmtpAddress"},{"headerName":"User Principal Name","field":"UserPrincipalName"}],"height":300,"rowSelection":"single"},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_0","input":{"propertyInputs":[{"propertyName":"searchValue","otherFieldValue":{"otherFieldKey":"searchMailbox"}}]}},"useFilter":true,"useDefault":false,"allowCsvDownload":true},"type":"grid","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":true}]},{"label":"Update devices","fields":[{"key":"devicelist","templateOptions":{"label":"ActiveSyncDevices","required":false,"filterable":false,"useDataSource":true,"dualList":{"options":[{"guid":"75ea2890-88f8-4851-b202-626123054e14","Name":"Apple"},{"guid":"0607270d-83e2-4574-9894-0b70011b663f","Name":"Pear"},{"guid":"1ef6fe01-3095-4614-a6db-7c8cd416ae3b","Name":"Orange"}],"optionKeyProperty":"DeviceId","optionDisplayProperty":"FriendlyName","labelLeft":"Available devices","labelRight":"Blocked devices"},"destinationDataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_1","input":{"propertyInputs":[{"propertyName":"selectedmailbox","otherFieldValue":{"otherFieldKey":"searchMailbox"}}]}},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_2","input":{"propertyInputs":[{"propertyName":"selectedmailbox","otherFieldValue":{"otherFieldKey":"selectedmailbox"}}]}}},"type":"duallist","summaryVisibility":"Show","sourceDataSourceIdentifierSuffix":"source-datasource","destinationDataSourceIdentifierSuffix":"destination-datasource","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false}]}]
 "@ 
 
 $dynamicFormGuid = [PSCustomObject]@{} 
 $dynamicFormName = @'
-Exchange on-premise - Manage ActiveSync Devices
+Exchange On-Premises - Usermailbox - ActiveSync Devices - Manage
 '@ 
 Invoke-HelloIDDynamicForm -FormName $dynamicFormName -FormSchema $tmpSchema  -returnObject ([Ref]$dynamicFormGuid) 
 <# END: Dynamic Form #>
@@ -597,7 +764,7 @@ if (-not[String]::IsNullOrEmpty($delegatedFormAccessGroupNames)) {
             $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false
             $delegatedFormAccessGroupGuid = $response.groupGuid
             $delegatedFormAccessGroupGuids += $delegatedFormAccessGroupGuid
-            
+        
             Write-Information "HelloID (access)group '$group' successfully found$(if ($script:debugLogging -eq $true) { ": " + $delegatedFormAccessGroupGuid })"
         }
         catch {
@@ -615,10 +782,10 @@ foreach ($category in $delegatedFormCategories) {
         $uri = ($script:PortalBaseUrl + "api/v1/delegatedformcategories/$category")
         $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false
         $response = $response | Where-Object { $_.name.en -eq $category }
-        
+    
         $tmpGuid = $response.delegatedFormCategoryGuid
         $delegatedFormCategoryGuids += $tmpGuid
-        
+    
         Write-Information "HelloID Delegated Form category '$category' successfully found$(if ($script:debugLogging -eq $true) { ": " + $tmpGuid })"
     }
     catch {
@@ -642,12 +809,12 @@ $delegatedFormCategoryGuids = (ConvertTo-Json -InputObject $delegatedFormCategor
 <# Begin: Delegated Form #>
 $delegatedFormRef = [PSCustomObject]@{guid = $null; created = $null } 
 $delegatedFormName = @'
-Exchange on-premise - Manage ActiveSync Devices
+Exchange On-Premises - Usermailbox - ActiveSync Devices - Manage
 '@
 $tmpTask = @'
-{"name":"Exchange on-premise - Manage ActiveSync Devices","script":"$VerbosePreference = \"SilentlyContinue\"\r\n$InformationPreference = \"Continue\"\r\n$WarningPreference = \"Continue\"\r\n\r\n# variables configured in form\r\n$username = $form.gridmailuser.userPrincipalName\r\n$devicesToActivate = $form.devicelist.rightToLeft\r\n$devicesToBlock = $form.devicelist.leftToRight\r\n\r\ntry {\r\n    \u003c#----- Exchange On-Premises: Start -----#\u003e\r\n    # Connect to Exchange\r\n    try {\r\n        $adminSecurePassword = ConvertTo-SecureString -String \"$ExchangeAdminPassword\" -AsPlainText -Force\r\n        $adminCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $ExchangeAdminUsername, $adminSecurePassword\r\n        $sessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck\r\n        $exchangeSession = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri $exchangeConnectionUri -Credential $adminCredential -SessionOption $sessionOption -Authentication $ExchangeAuthentication -ErrorAction Stop \r\n        #-AllowRedirection\r\n        $session = Import-PSSession $exchangeSession -DisableNameChecking -AllowClobber\r\n\r\n        Write-Information \"Successfully connected to Exchange using the URI [$exchangeConnectionUri]\" \r\n    \r\n        $Log = @{\r\n            Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n            System            = \"Exchange On-Premise\" # optional (free format text) \r\n            Message           = \"Successfully connected to Exchange using the URI [$exchangeConnectionUri]\" # required (free format text) \r\n            IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n            TargetDisplayName = $exchangeConnectionUri # optional (free format text) \r\n            TargetIdentifier  = $([string]$session.GUID) # optional (free format text) \r\n        }\r\n        #send result back  \r\n        Write-Information -Tags \"Audit\" -MessageData $log\r\n    }\r\n    catch {\r\n        Write-Error \"Error connecting to Exchange using the URI [$exchangeConnectionUri]. Error: $($_.Exception.Message)\"\r\n        $Log = @{\r\n            Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n            System            = \"Exchange On-Premise\" # optional (free format text) \r\n            Message           = \"Failed to connect to Exchange using the URI [$exchangeConnectionUri].\" # required (free format text) \r\n            IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n            TargetDisplayName = $exchangeConnectionUri # optional (free format text) \r\n            TargetIdentifier  = $([string]$session.GUID) # optional (free format text) \r\n        }\r\n        #send result back  \r\n        Write-Information -Tags \"Audit\" -MessageData $log\r\n    }\r\n\r\n    if ($devicesToActivate.count -gt 0) {\r\n        try {\r\n            Write-Information \"Starting to allow device [$($devicesToActivate.FriendlyName)] for user [$username)]\"\r\n            \r\n            foreach ($device in $devicesToActivate) {\r\n                try {\r\n                    Set-CASMailbox -Identity $username -ActiveSyncAllowedDeviceIDs @{ add = $device.DeviceId }\r\n\r\n                    Write-Information \"Finished allowing $($device.DeviceId) for user [$username]\"\r\n                    $Log = @{\r\n                        Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n                        System            = \"Exchange On-Premise\" # optional (free format text) \r\n                        Message           = \"Successfully allowing $($device.DeviceId) for user [$username]\" # required (free format text) \r\n                        IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $username # optional (free format text) \r\n                        TargetIdentifier  = $($device.DeviceId) # optional (free format text) \r\n                    }\r\n                    #send result back  \r\n                    Write-Information -Tags \"Audit\" -MessageData $log       \r\n                }\r\n                catch {\r\n                    Write-Error \"Error activating $($device.DeviceId) for user [$username]. Error: $($_.Exception.Message)\" \r\n                    $Log = @{\r\n                        Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n                        System            = \"Exchange On-Premise\" # optional (free format text) \r\n                        Message           = \"Failed to allow [$($device.DeviceId)] for [$username]\" # required (free format text) \r\n                        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $username # optional (free format text) \r\n                        TargetIdentifier  = $($device.DeviceId) # optional (free format text) \r\n                    }\r\n                    #send result back  \r\n                    Write-Information -Tags \"Audit\" -MessageData $log                    \r\n                }\r\n            }\r\n        }               \r\n        catch {\r\n            Write-Error \"Could not allow [$($devicesToActivate.FriendlyName)] for user [$username]. Error: $($_.Exception.Message)\"\r\n            $Log = @{\r\n                Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n                System            = \"Exchange On-Premise\" # optional (free format text) \r\n                Message           = \"Failed to allow [$($devicesToActivate.FriendlyName)] for user [$username]\" # required (free format text) \r\n                IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                TargetDisplayName = $username # optional (free format text) \r\n                TargetIdentifier  = $($devicesToActivate.DeviceId) # optional (free format text) \r\n            }\r\n            #send result back  \r\n            Write-Information -Tags \"Audit\" -MessageData $log            \r\n        }\r\n    }\r\n\r\n    if ($devicesToBlock.count -gt 0) {\r\n        try {\r\n            Write-Information \"Starting to block device [$($devicesToBlock.FriendlyName)] for user [$username)]\"\r\n            \r\n            foreach ($device in $devicesToBlock) {\r\n                try {\r\n                    Set-CASMailbox -Identity $username -ActiveSyncBlockedDeviceIDs  @{ add = $device.DeviceId }\r\n\r\n                    Write-Information \"Finished blocking $($device.DeviceId) for user [$username]\"\r\n                    $Log = @{\r\n                        Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n                        System            = \"Exchange On-Premise\" # optional (free format text) \r\n                        Message           = \"Successfully blocking $($device.DeviceId) for user [$username]\" # required (free format text) \r\n                        IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $username # optional (free format text) \r\n                        TargetIdentifier  = $($device.DeviceId) # optional (free format text) \r\n                    }\r\n                    #send result back  \r\n                    Write-Information -Tags \"Audit\" -MessageData $log       \r\n                }\r\n                catch {\r\n                    Write-Error \"Error blocking $($device.DeviceId) for user [$username]. Error: $($_.Exception.Message)\" \r\n                    $Log = @{\r\n                        Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n                        System            = \"Exchange On-Premise\" # optional (free format text) \r\n                        Message           = \"Failed to block [$($device.DeviceId)] for [$username]\" # required (free format text) \r\n                        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $username # optional (free format text) \r\n                        TargetIdentifier  = $($device.DeviceId) # optional (free format text) \r\n                    }\r\n                    #send result back  \r\n                    Write-Information -Tags \"Audit\" -MessageData $log                    \r\n                }\r\n            }\r\n        }               \r\n        catch {\r\n            Write-Error \"Could not block [$($devicesToBlock.FriendlyName)] for user [$username]. Error: $($_.Exception.Message)\"\r\n            $Log = @{\r\n                Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n                System            = \"Exchange On-Premise\" # optional (free format text) \r\n                Message           = \"Failed to blocke [$($devicesToBlock.FriendlyName)] for user [$username]\" # required (free format text) \r\n                IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                TargetDisplayName = $username # optional (free format text) \r\n                TargetIdentifier  = $($devicesToBlock.DeviceId) # optional (free format text) \r\n            }\r\n            #send result back  \r\n            Write-Information -Tags \"Audit\" -MessageData $log            \r\n        }\r\n    }        \r\n} catch {\r\n    Write-Error \"Could not manage devices for user [$username]. Error: $($_.Exception.Message)\"    \r\n    $Log = @{\r\n        Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n        System            = \"Exchange On-Premise\" # optional (free format text) \r\n        Message           = \"Failed to manage devices for user [$username].\" # required (free format text) \r\n        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n        TargetDisplayName = $username # optional (free format text) \r\n        TargetIdentifier  = $username # optional (free format text) \r\n    }\r\n    #send result back  \r\n    Write-Information -Tags \"Audit\" -MessageData $log\r\n}\r\nfinally {\r\n    # Disconnect from Exchange\r\n    try {\r\n        Remove-PsSession -Session $exchangeSession -Confirm:$false -ErrorAction Stop\r\n        Write-Information \"Successfully disconnected from Exchange using the URI [$exchangeConnectionUri]\"     \r\n        $Log = @{\r\n            Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n            System            = \"Exchange On-Premise\" # optional (free format text) \r\n            Message           = \"Successfully disconnected from Exchange using the URI [$exchangeConnectionUri]\" # required (free format text) \r\n            IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n            TargetDisplayName = $exchangeConnectionUri # optional (free format text) \r\n            TargetIdentifier  = $([string]$session.GUID) # optional (free format text) \r\n        }\r\n        #send result back  \r\n        Write-Information -Tags \"Audit\" -MessageData $log\r\n    }\r\n    catch {\r\n        Write-Error \"Error disconnecting from Exchange.  Error: $($_.Exception.Message)\"\r\n        $Log = @{\r\n            Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n            System            = \"Exchange On-Premise\" # optional (free format text) \r\n            Message           = \"Failed to disconnect from Exchange using the URI [$exchangeConnectionUri].\" # required (free format text) \r\n            IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n            TargetDisplayName = $exchangeConnectionUri # optional (free format text) \r\n            TargetIdentifier  = $([string]$session.GUID) # optional (free format text) \r\n        }\r\n        #send result back  \r\n        Write-Information -Tags \"Audit\" -MessageData $log \r\n    }\r\n    \u003c#----- Exchange On-Premises: End -----#\u003e\r\n}\r\n\r\n","runInCloud":false}
+{"name":"Exchange On-Premises - Usermailbox - Manage ActiveSync Devices","script":"# variables configured in form\r\n$mailbox = $form.selectedmailbox\r\n$devicesToActivate = $form.devicelist.rightToLeft\r\n$devicesToBlock = $form.devicelist.leftToRight\r\n\r\n# Global variables\r\n# Outcommented as these are set from Global Variables\r\n# $ExchangeConnectionUri = \"\"\r\n# $ExchangeAdminUsername = \"\"\r\n# $ExchangeAdminPassword = \"\"\r\n\r\n# Fixed values\r\n$commands = @(    \r\n    \"Set-CASMailbox\"\r\n)\r\n\r\n# Enable TLS1.2\r\n[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12\r\n\r\n# Set debug logging\r\n$VerbosePreference = \"SilentlyContinue\"\r\n$InformationPreference = \"Continue\"\r\n$WarningPreference = \"Continue\"\r\n\r\n#region functions\r\n#endregion functions\r\n\r\ntry {\r\n     # Create credentials\r\n    $actionMessage = \"creating credentials object\"\r\n    \r\n    $securePassword = ConvertTo-SecureString -String $ExchangeAdminPassword -AsPlainText -Force\r\n    $credential = [System.Management.Automation.PSCredential]::new($ExchangeAdminUsername, $securePassword)\r\n    \r\n    Write-Verbose \"Created credentials for user [$ExchangeAdminUsername]\"\r\n\r\n    # Connect to Exchange On-Premises\r\n    # Docs: https://learn.microsoft.com/en-us/powershell/exchange/connect-to-exchange-servers-using-remote-powershell\r\n    $actionMessage = \"connecting to Exchange On-Premises\"\r\n\r\n    $sessionOptionParams = @{\r\n        SkipCACheck         = $false\r\n        SkipCNCheck         = $false\r\n        SkipRevocationCheck = $false\r\n    }\r\n\r\n    $sessionOption = New-PSSessionOption @sessionOptionParams\r\n\r\n    $sessionParams = @{\r\n        Authentication    = 'Default'\r\n        ConfigurationName = 'Microsoft.Exchange'\r\n        Credential        = $credential\r\n        ConnectionUri     = $ExchangeConnectionUri\r\n        SessionOption     = $sessionOption\r\n        ErrorAction       = \"Stop\"\r\n    }\r\n\r\n    $exchangeSession = New-PSSession @sessionParams\r\n    $null = Import-PSSession -Session $exchangeSession -DisableNameChecking -AllowClobber -CommandName $commands -ErrorAction Stop\r\n\r\n    # Send initial audit log\r\n    $Log = @{\r\n        Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n        System            = \"Exchange On-Premises\" # optional (free format text) \r\n        Message           = \"Successfully connected to Exchange using URI [$ExchangeConnectionUri]\" # required (free format text) \r\n        IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n        TargetDisplayName = $ExchangeConnectionUri # optional (free format text) \r\n        TargetIdentifier  = $([string]$exchangeSession.InstanceId) # optional (free format text) \r\n    }\r\n    Write-Information -Tags \"Audit\" -MessageData $log\r\n\r\n    if ($devicesToActivate.count -gt 0) {\r\n        $actionMessage = \"activating devices\"\r\n        Write-Information \"Starting to activate device [$($devicesToActivate.FriendlyName)] for user [$($mailbox.UserPrincipalName)]\"\r\n        \r\n        foreach ($device in $devicesToActivate) {\r\n            try {\r\n                $activateActiveSyncDeviceParams = @{\r\n                    Identity = $($mailbox.UserPrincipalName)\r\n                    ErrorAction = \"Stop\"\r\n                }\r\n\r\n                $null = Set-CASMailbox @activateActiveSyncDeviceParams -ActiveSyncAllowedDeviceIDs @{ add = $device.DeviceId }\r\n\r\n                Write-Information \"Finished activating $($device.DeviceId) for user [$($mailbox.UserPrincipalName)]\"\r\n                $Log = @{\r\n                    Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange On-Premises\" # optional (free format text) \r\n                    Message           = \"Successfully activated $($device.DeviceId) for user [$($mailbox.UserPrincipalName)]\" # required (free format text) \r\n                    IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $($mailbox.DisplayName) # optional (free format text) \r\n                    TargetIdentifier  = $($device.DeviceId) # optional (free format text) \r\n                }\r\n                #send result back  \r\n                Write-Information -Tags \"Audit\" -MessageData $log       \r\n            }\r\n            catch {\r\n                Write-Error \"Error activating $($device.DeviceId) for user [$($mailbox.UserPrincipalName)]. Error: $($_.Exception.Message)\" \r\n                $Log = @{\r\n                    Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange On-Premises\" # optional (free format text) \r\n                    Message           = \"Failed to activate [$($device.DeviceId)] for [$($mailbox.UserPrincipalName)]\" # required (free format text) \r\n                    IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $($mailbox.DisplayName) # optional (free format text) \r\n                    TargetIdentifier  = $($device.DeviceId) # optional (free format text) \r\n                }\r\n                #send result back  \r\n                Write-Information -Tags \"Audit\" -MessageData $log                    \r\n            }\r\n        }        \r\n    }\r\n\r\n    if ($devicesToBlock.count -gt 0) {\r\n        $actionMessage = \"blocking devices\"\r\n        Write-Information \"Starting to block device [$($devicesToBlock.FriendlyName)] for user [$($mailbox.UserPrincipalName)]\"\r\n        \r\n        foreach ($device in $devicesToBlock) {\r\n            try {\r\n                $blockActiveSyncDeviceParams = @{\r\n                    Identity = $($mailbox.UserPrincipalName)\r\n                    ErrorAction = \"Stop\"\r\n                }\r\n\r\n                $null = Set-CASMailbox @blockActiveSyncDeviceParams -ActiveSyncBlockedDeviceIDs @{ add = $device.DeviceId }\r\n\r\n                Write-Information \"Finished blocking $($device.DeviceId) for user [$($mailbox.UserPrincipalName)]\"\r\n                $Log = @{\r\n                    Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange On-Premises\" # optional (free format text) \r\n                    Message           = \"Successfully blocked $($device.DeviceId) for user [$($mailbox.UserPrincipalName)]\" # required (free format text) \r\n                    IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $($mailbox.DisplayName) # optional (free format text) \r\n                    TargetIdentifier  = $($device.DeviceId) # optional (free format text) \r\n                }\r\n                #send result back  \r\n                Write-Information -Tags \"Audit\" -MessageData $log       \r\n            }\r\n            catch {\r\n                Write-Error \"Error blocking $($device.DeviceId) for user [$($mailbox.UserPrincipalName)]. Error: $($_.Exception.Message)\" \r\n                $Log = @{\r\n                    Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange On-Premises\" # optional (free format text) \r\n                    Message           = \"Failed to block [$($device.DeviceId)] for [$($mailbox.UserPrincipalName)]\" # required (free format text) \r\n                    IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $($mailbox.DisplayName) # optional (free format text) \r\n                    TargetIdentifier  = $($device.DeviceId) # optional (free format text) \r\n                }\r\n                #send result back  \r\n                Write-Information -Tags \"Audit\" -MessageData $log                    \r\n            }\r\n        }        \r\n    }        \r\n} catch {\r\n    $ex = $PSItem\r\n    if (-not [string]::IsNullOrEmpty($ex.Exception.Message)) {\r\n        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)\"\r\n        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Message)\"\r\n    }\r\n    else {\r\n        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception)\"\r\n        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception)\"\r\n    }\r\n\r\n    # Send error audit log to HelloID\r\n    $Log = @{\r\n        Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n        System            = \"Exchange On-Premises\" # optional (free format text) \r\n        Message           = $auditMessage # required (free format text) \r\n        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n        TargetDisplayName = $mailbox.DisplayName # optional (free format text) \r\n        TargetIdentifier  = $mailbox.ExchangeGuid # optional (free format text) \r\n    }\r\n    \r\n    Write-Information -Tags \"Audit\" -MessageData $log\r\n    Write-Warning $warningMessage\r\n    Write-Error $auditMessage\r\n}\r\nfinally {\r\n    # Disconnect from Exchange\r\n    # Docs: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/remove-pssession\r\n    if ($null -ne $exchangeSession) {\r\n        try {\r\n            $deleteExchangeSessionSplatParams = @{\r\n                Session     = $exchangeSession\r\n                Confirm     = $false\r\n                ErrorAction = \"Stop\"\r\n            }\r\n            $null = Remove-PSSession @deleteExchangeSessionSplatParams\r\n\r\n            # Send disconnect audit log\r\n            $Log = @{\r\n                Action            = \"UpdateResource\" # optional. ENUM (undefined = default) \r\n                System            = \"Exchange On-Premises\" # optional (free format text) \r\n                Message           = \"Successfully disconnected from Exchange using URI [$ExchangeConnectionUri]\" # required (free format text) \r\n                IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                TargetDisplayName = $ExchangeConnectionUri # optional (free format text) \r\n                TargetIdentifier  = $([string]$exchangeSession.InstanceId) # optional (free format text) \r\n            }\r\n            Write-Information -Tags \"Audit\" -MessageData $log\r\n        }\r\n        catch {\r\n            Write-Warning \"Failed to disconnect from Exchange using URI [$ExchangeConnectionUri]. Error: $($_.Exception.Message)\"\r\n        }\r\n    }\r\n}\r\n\r\n","runInCloud":false}
 '@ 
 
-Invoke-HelloIDDelegatedForm -DelegatedFormName $delegatedFormName -DynamicFormGuid $dynamicFormGuid -AccessGroups $delegatedFormAccessGroupGuids -Categories $delegatedFormCategoryGuids -UseFaIcon "True" -FaIcon "fa fa-tablet" -task $tmpTask -returnObject ([Ref]$delegatedFormRef) 
+Invoke-HelloIDDelegatedForm -DelegatedFormName $delegatedFormName -DynamicFormGuid $dynamicFormGuid -AccessGroups $delegatedFormAccessGroupGuids -Categories $delegatedFormCategoryGuids -UseFaIcon "True" -FaIcon "fa fa-file-text-o" -task $tmpTask -returnObject ([Ref]$delegatedFormRef) 
 <# End: Delegated Form #>
 

@@ -1,6 +1,6 @@
 # variables configured in form
 $mailbox = $form.selectedmailbox
-$devicesToActivate = $form.devicelist.leftToRight
+$devicesToActivate = $form.devicelist.rightToLeft
 $devicesToBlock = $form.devicelist.leftToRight
 
 # Global variables
